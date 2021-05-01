@@ -35,7 +35,9 @@ fun modelInfoOf(targetModel: IrClass): ModelInfoIr {
 	val properties = targetModel.declarations
 		.filterIsInstance<IrProperty>()
 		.filter {
-			it.backingField != null && !it.hasAnnotation(ModelIrNames.Exclude)
+			it.backingField != null &&
+				!it.hasAnnotation(ModelIrNames.Exclude) &&
+				!it.hasAnnotation(ModelIrNames.ModelInfoParameter)
 		}
 		.mapIndexed { index, property ->
 			ModelPropertyIr(property) { thisRef ->
