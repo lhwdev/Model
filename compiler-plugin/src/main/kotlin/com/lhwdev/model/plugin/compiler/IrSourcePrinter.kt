@@ -10,6 +10,7 @@ import com.lhwdev.model.plugin.compiler.util.pluginContext
 import org.jetbrains.kotlin.backend.common.ScopeWithIr
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContextImpl
+import org.jetbrains.kotlin.backend.jvm.lower.isPrivate
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
@@ -1558,8 +1559,14 @@ private abstract class IrSourcePrinterVisitor(
 	
 	/// member property
 	
+	private fun IrProperty.isOverriding(target: IrProperty): Boolean = when {
+		name != target.name -> false
+		visibility.isPrivate && target.visibility.isPrivate -> false
+		else -> true
+	}
+	
 	override fun visitPropertyNew(declaration: IrProperty) = declare(declaration) {
-		val isOverride = descriptor.overriddenDescriptors.isNotEmpty()
+		val isOverride = parentAsClass.declarations.any { it is IrProperty && isOverriding(it) }
 		
 		val backingField = backingField
 		val definedGetter = getter?.takeUnless { it.origin == IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR }
@@ -3216,7 +3223,7 @@ private abstract class IrSourcePrinterVisitor(
 					val destructuring = destructuringParameters[parameter.index]
 					if(destructuring == null) parameter.print()
 					else parenGroup {
-						(0..destructuring.keys.max()!!).printJoin(",") {
+						(0..destructuring.keys.maxOrNull()!!).printJoin(",") {
 							val destructuringInner = destructuring[it]
 							if(destructuringInner == null) print("_", Type.valueParameter)
 							else print(destructuringInner.name, Type.valueParameter)

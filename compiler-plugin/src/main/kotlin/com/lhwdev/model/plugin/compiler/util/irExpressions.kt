@@ -3,8 +3,10 @@
 package com.lhwdev.model.plugin.compiler.util
 
 import com.lhwdev.model.plugin.compiler.dumpSrcHead
-import com.lhwdev.model.plugin.compiler.dumpSrcHeadColored
-import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.kotlin.descriptors.ClassKind
+import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
+import org.jetbrains.kotlin.descriptors.Modality
+import org.jetbrains.kotlin.descriptors.SourceElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.ObsoleteDescriptorBasedAPI
 import org.jetbrains.kotlin.ir.builders.Scope

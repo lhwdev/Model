@@ -6,11 +6,21 @@ import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.*
+import org.jetbrains.kotlin.ir.expressions.IrCall
 import org.jetbrains.kotlin.ir.expressions.IrExpression
+import org.jetbrains.kotlin.ir.expressions.IrGetValue
+import org.jetbrains.kotlin.ir.expressions.IrReturn
+import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
+import org.jetbrains.kotlin.ir.expressions.impl.IrReturnImpl
+import org.jetbrains.kotlin.ir.symbols.IrReturnTargetSymbol
+import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
+import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.types.classifierOrNull
 import org.jetbrains.kotlin.ir.types.defaultType
 import org.jetbrains.kotlin.ir.types.typeWith
 import org.jetbrains.kotlin.ir.util.companionObject
+import org.jetbrains.kotlin.ir.util.copyTypeAndValueArgumentsFrom
 import org.jetbrains.kotlin.ir.util.defaultType
 import org.jetbrains.kotlin.ir.util.hasAnnotation
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
@@ -84,7 +94,8 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 		if(modelInfoParameters.size > 1)
 			error("multiple properties with @ModelInfoParameter: ${modelInfoParameters.joinToString { it.name.toString() }}")
 		
-		if(targetModel.typeParameters.isNotEmpty() && modelInfoParameters.isEmpty()) error("""
+		if(targetModel.typeParameters.isNotEmpty() && modelInfoParameters.isEmpty()) error(
+			"""
 			model with type parameter(s) should have a property with @ModelInfoParameter for model system to handle
 			serialization and other things.
 			
@@ -101,7 +112,8 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 			class MyModel2<T, R>(val t: T, val r: R, val tInfo: ModelInfo<T>, val rInfo: ModelInfo<R>) {
 				@ModelInfoParameter
 				private val selfModelInfo = CustomModelInfo(tInfo, rInfo)
-		""".trimIndent())
+		""".trimIndent()
+		)
 		
 		val modelInfoParameter = modelInfoParameters.firstOrNull()
 		
@@ -232,7 +244,10 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 					for((propertyIndex, property) in infoIr.properties.withIndex()) {
 						irEquals(irGet(i), irInt(propertyIndex)) then irWriteModelTo(
 							writer = irGet(to),
-							value = irGet(infoIr.properties[propertyIndex].property.symbol, receiver = irGet(irThisClass)),
+							value = irGet(
+								infoIr.properties[propertyIndex].property.symbol,
+								receiver = irGet(irThisClass)
+							),
 							type = property.property.propertyType,
 							modelInfo = property.modelInfo(this@irBlockBody, irThisClass)
 						)
@@ -258,7 +273,7 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 								modelInfo = property.modelInfo(this@irBlockBody, irThisClass)
 							)
 							
-							 irSet(
+							irSet(
 								infoIr.properties[propertyIndex].property.symbol,
 								receiver = irGet(irThisClass),
 								value = read
@@ -272,6 +287,58 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 				}
 			}
 		}
+		
+		for(modelProperty in infoIr.properties) {
+			transformProperty(modelProperty)
+		}
 	}
 	
+	private fun transformProperty(propertyIr: ModelPropertyIr): Unit = with(propertyIr.property.scope) {
+		val property = propertyIr.property
+		
+		val originalGetter = property.getter
+		if(originalGetter == null) irPropertyGetter()
+		else irPropertyGetter(originalGetter.visibility, originalGetter.isInline) { getter, thisRef ->
+		
+		}
+	}
+}
+
+
+private class MapInlineTransformer(
+	private val getMapping: Map<IrValueSymbol, IrValueSymbol>,
+	private val callMapping: Map<IrSimpleFunctionSymbol, IrSimpleFunctionSymbol>,
+	private val returnMapping: Map<IrReturnTargetSymbol, IrReturnTargetSymbol>
+) : IrElementTransformerVoid() {
+	override fun visitGetValue(expression: IrGetValue): IrExpression {
+		val mapTo = getMapping[expression.symbol]
+		if(mapTo != null) return IrGetValueImpl(
+			startOffset = expression.startOffset, endOffset = expression.endOffset,
+			type = expression.type, symbol = mapTo,
+			origin = expression.origin
+		)
+		return super.visitGetValue(expression)
+	}
+	
+	override fun visitReturn(expression: IrReturn): IrExpression {
+		val mapTo = returnMapping[expression.returnTargetSymbol]
+		if(mapTo != null) return IrReturnImpl(
+			startOffset = expression.startOffset, endOffset = expression.endOffset,
+			type = expression.type, returnTargetSymbol = mapTo, value = expression.value
+		)
+		return super.visitReturn(expression)
+	}
+	
+	override fun visitCall(expression: IrCall): IrExpression {
+		val mapTo = callMapping[expression.symbol]
+		if(mapTo != null) return IrCallImpl(
+			startOffset = expression.startOffset, endOffset = expression.endOffset,
+			type = expression.type, symbol = mapTo,
+			typeArgumentsCount = expression.typeArgumentsCount, valueArgumentsCount = expression.valueArgumentsCount,
+			origin = expression.origin, superQualifierSymbol = expression.superQualifierSymbol
+		).apply {
+			copyTypeAndValueArgumentsFrom(expression)
+		}
+		return super.visitCall(expression)
+	}
 }

@@ -18,6 +18,7 @@ tasks.named<Test>("test") {
 
 
 dependencies {
+	// compileOnly("org.jetbrains.kotlin:kotlin-compiler:$kotlinVersion")
 	compileOnly("org.jetbrains.kotlin:kotlin-compiler-embeddable:$kotlinVersion")
 	compileOnly("org.jetbrains.kotlin:kotlin-gradle-plugin-api:$kotlinVersion")
 	

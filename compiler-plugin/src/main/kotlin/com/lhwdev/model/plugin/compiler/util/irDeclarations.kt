@@ -8,7 +8,6 @@ import org.jetbrains.kotlin.ir.builders.Scope
 import org.jetbrains.kotlin.ir.builders.declarations.addValueParameter
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.declarations.impl.IrVariableImpl
-import org.jetbrains.kotlin.ir.descriptors.*
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrBlockBodyImpl
 import org.jetbrains.kotlin.ir.overrides.IrOverridingUtil
@@ -91,8 +90,7 @@ fun IrBuilderScope.irClass(
 	source: SourceElement = SourceElement.NO_SOURCE,
 	init: IrClassScope.(IrClass) -> Unit = {}
 ): IrClass {
-	val descriptor = WrappedClassDescriptor()
-	val symbol = IrClassSymbolImpl(descriptor)
+	val symbol = IrClassSymbolImpl()
 	
 	val aClass = irFactory.createClass(
 		startOffset, endOffset,
@@ -105,22 +103,19 @@ fun IrBuilderScope.irClass(
 		isExpect = isExpect, isFun = isFun,
 		source = source
 	)
-	descriptor.bind(aClass)
 	
 	aClass.parent = scope.getLocalDeclarationParent()
 	
-	val thisReceiverDescriptor = WrappedValueParameterDescriptor()
 	val thisReceiver = irFactory.createValueParameter(
 		startOffset, endOffset,
 		origin = IrDeclarationOrigin.INSTANCE_RECEIVER,
-		symbol = IrValueParameterSymbolImpl(thisReceiverDescriptor),
+		symbol = IrValueParameterSymbolImpl(),
 		name = Name.special("<this>"),
 		index = -1,
 		type = aClass.typeWith(aClass.typeParameters.map { it.defaultType }),
 		varargElementType = null,
 		isCrossinline = false, isNoinline = false, isHidden = false, isAssignable = false
 	)
-	thisReceiverDescriptor.bind(thisReceiver)
 	thisReceiver.parent = aClass
 	aClass.thisReceiver = thisReceiver
 	
@@ -169,18 +164,16 @@ fun IrFunctionScope.irValueParameter(
 	origin: IrDeclarationOrigin = sBackendDeclarationOrigin,
 	defaultValue: (IrBuilderScope.() -> IrExpression)? = null
 ): IrValueParameter {
-	val descriptor = WrappedValueParameterDescriptor()
 	val parameter = irFactory.createValueParameter(
 		startOffset, endOffset,
 		origin = origin,
-		symbol = IrValueParameterSymbolImpl(descriptor),
+		symbol = IrValueParameterSymbolImpl(),
 		name = name,
 		index = index,
 		type = type,
 		varargElementType = null,
 		isCrossinline = isCrossinline, isNoinline = isNoinline, isHidden = isHidden, isAssignable = isAssignable
 	)
-	descriptor.bind(parameter)
 	parameter.parent = scope.getLocalDeclarationParent()
 	
 	if(defaultValue != null) parameter.defaultValue = with(parameter.scope) {
@@ -255,17 +248,15 @@ fun IrFunctionScope.addTypeParameter(
 	isReified: Boolean = false,
 	origin: IrDeclarationOrigin = sBackendDeclarationOrigin
 ): IrTypeParameter {
-	val descriptor = WrappedTypeParameterDescriptor()
 	val parameter = irFactory.createTypeParameter(
 		startOffset, endOffset,
 		origin = origin,
-		symbol = IrTypeParameterSymbolImpl(descriptor),
+		symbol = IrTypeParameterSymbolImpl(),
 		name = name,
 		index = index,
 		isReified = isReified,
 		variance = variance
 	)
-	descriptor.bind(parameter)
 	parameter.parent = scope.getLocalDeclarationParent()
 	
 	parameter.superTypes = superTypes
@@ -302,9 +293,7 @@ fun IrBuilderScope.irSimpleFunction(
 	containerSource: DeserializedContainerSource? = null,
 	init: IrSimpleFunctionScope.(IrSimpleFunction) -> IrBody?
 ): IrSimpleFunction {
-	val descriptor = WrappedSimpleFunctionDescriptor()
-	val symbol = IrSimpleFunctionSymbolImpl(descriptor)
-	
+	val symbol = IrSimpleFunctionSymbolImpl()
 	val function = irFactory.createFunction(
 		startOffset, endOffset,
 		symbol = symbol,
@@ -316,8 +305,6 @@ fun IrBuilderScope.irSimpleFunction(
 		origin = origin,
 		containerSource = containerSource
 	)
-	
-	descriptor.bind(function)
 	
 	function.parent = scope.getLocalDeclarationParent()
 	function.body = IrSimpleFunctionScopeImpl(function).init(function)
@@ -480,8 +467,7 @@ fun IrClassScope.irConstructor(
 	containerSource: DeserializedContainerSource? = null,
 	init: IrBuilderScope.(IrConstructor) -> IrBody?
 ): IrConstructor {
-	val descriptor = WrappedClassConstructorDescriptor()
-	val symbol = IrConstructorSymbolImpl(descriptor)
+	val symbol = IrConstructorSymbolImpl()
 	
 	val function = irFactory.createConstructor(
 		startOffset, endOffset,
@@ -493,8 +479,6 @@ fun IrClassScope.irConstructor(
 		isInline = isInline, isExternal = isExternal, isExpect = isExpect, isPrimary = isPrimary,
 		containerSource = containerSource
 	)
-	
-	descriptor.bind(function)
 	
 	function.parent = scope.getLocalDeclarationParent()
 	function.body = irBuilderScope(function).init(function)
@@ -555,11 +539,9 @@ fun IrBuilderScope.irProperty(
 	isExpect: Boolean = false,
 	origin: IrDeclarationOrigin = sBackendDeclarationOrigin,
 	containerSource: DeserializedContainerSource? = null,
-	descriptor: WrappedPropertyDescriptor = WrappedPropertyDescriptor(),
 	init: IrPropertyScope.(IrProperty) -> Unit
 ): IrProperty {
-	val symbol = IrPropertySymbolImpl(descriptor)
-	
+	val symbol = IrPropertySymbolImpl()
 	val property = irFactory.createProperty(
 		startOffset, endOffset,
 		origin = origin,
@@ -571,8 +553,6 @@ fun IrBuilderScope.irProperty(
 		isExpect = isExpect,
 		containerSource = containerSource
 	)
-	
-	descriptor.bind(property)
 	
 	property.parent = scope.getLocalDeclarationParent()
 	IrPropertyScopeImpl(property, type, startOffset, endOffset, Scope(symbol)).init(property)
@@ -630,8 +610,7 @@ fun IrBuilderScope.irField(
 	isStatic: Boolean = false,
 	origin: IrDeclarationOrigin = sBackendDeclarationOrigin
 ): IrField {
-	val descriptor = WrappedFieldDescriptor()
-	val symbol = IrFieldSymbolImpl(descriptor)
+	val symbol = IrFieldSymbolImpl()
 	
 	val field = irFactory.createField(
 		startOffset, endOffset,
@@ -640,16 +619,9 @@ fun IrBuilderScope.irField(
 		visibility = visibility,
 		isFinal = isFinal, isExternal = isExternal, isStatic = isStatic
 	)
-	descriptor.bind(field)
 	field.parent = scope.getLocalDeclarationParent()
 	
 	return field
-}
-
-
-class WrappedOverriddenPropertyDescriptor(val target: MutableCollection<PropertyDescriptor>) :
-	WrappedPropertyDescriptor() {
-	override fun getOverriddenDescriptors(): MutableCollection<out PropertyDescriptor> = target
 }
 
 fun IrBuilderScope.irOverrideProperty(
@@ -668,14 +640,7 @@ fun IrBuilderScope.irOverrideProperty(
 	name = overrideTarget.owner.name, type = type,
 	visibility = visibility, modality = modality,
 	isVar = isVar, isLateinit = isLateinit, isDelegated = isDelegated, isExpect = isExpect,
-	origin = origin, containerSource = containerSource,
-	descriptor = @OptIn(ObsoleteDescriptorBasedAPI::class) WrappedOverriddenPropertyDescriptor(
-		mutableListOf(
-			overrideTarget.descriptor
-		)
-	)
-) {
-	
+	origin = origin, containerSource = containerSource) {
 	init(it)
 }
 
@@ -775,9 +740,8 @@ fun IrBuilderScope.irVariable(
 	origin: IrDeclarationOrigin = IrDeclarationOrigin.DEFINED
 ): IrVariable {
 	val name2 = Name.guessByFirstCharacter(name)
-	val descriptor = WrappedVariableDescriptor()
 	val variable = IrVariableImpl(
-		startOffset, endOffset, origin, IrVariableSymbolImpl(descriptor), name2, type, isVar, isConst, isLateinit
+		startOffset, endOffset, origin, IrVariableSymbolImpl(), name2, type, isVar, isConst, isLateinit
 	)
 	variable.annotations = annotations
 	return variable

@@ -18,7 +18,7 @@ class IrSimpleBuilderScope(override val startOffset: Int, override val endOffset
 	IrBuilderScope
 
 
-val irElementScope = irElementScope()
+val irElementScope: IrElementScope = irElementScope()
 
 fun irElementScope(startOffset: Int = UNDEFINED_OFFSET, endOffset: Int = UNDEFINED_OFFSET): IrElementScope =
 	IrSimpleElementScope(startOffset, endOffset)
