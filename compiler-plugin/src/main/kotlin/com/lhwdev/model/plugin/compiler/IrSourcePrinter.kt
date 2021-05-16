@@ -349,6 +349,7 @@ private abstract class IrSourcePrinterVisitor(
 		keyword(Ansi.purple),
 		lightKeyword(Ansi.brightPurple),
 		identifier(Ansi.brightWhite),
+		boldIdentifier(Ansi.brightWhite + Ansi.bold),
 		property(Ansi.brightWhite),
 		function(Ansi.brightBlue),
 		localVariable(Ansi.brightWhite),
@@ -417,7 +418,7 @@ private abstract class IrSourcePrinterVisitor(
 			}
 			
 			val colorString = when(colorConfig) {
-				SourceColorConfig.ansi -> ((group.inherit.stylePrefix + newType.ansi)?.toString() ?: "")
+				SourceColorConfig.ansi -> ((Ansi.reset + group.inherit.stylePrefix + newType.ansi)?.toString() ?: "")
 				SourceColorConfig.disabled -> ""
 			}
 			
@@ -1175,9 +1176,19 @@ private abstract class IrSourcePrinterVisitor(
 					val property = properties.correspondingProperty(parameter)
 					if(property != null) {
 						constructorProperties.add(property)
-						print(if(property.isVar) "var" else "val", Type.keyword)
-						overrideType(Type.identifier, Type.property) {
-							parameter.print()
+						
+						if(
+							property.getter?.isGetterDefault() == true &&
+							property.setter?.isSetterDefault() != false
+						) {
+							property.annotations.printAnnotations(newLine = null)
+							print(if(property.isVar) "var" else "val", Type.keyword)
+							overrideType(Type.identifier, Type.property) {
+								parameter.print()
+							}
+						} else {
+							// do not happen in normal kotlin code, but can happen
+							property.acceptVoid(this@IrSourcePrinterVisitor)
 						}
 					} else parameter.print()
 				}
@@ -1565,12 +1576,35 @@ private abstract class IrSourcePrinterVisitor(
 		else -> true
 	}
 	
+	// not accurate
+	private fun IrBody.singleResultExpressionOrNull(): IrExpression? = when(this) {
+		is IrBlockBody -> (statements.lastOrNull() as? IrReturn)?.value
+		is IrExpressionBody -> expression
+		else -> null
+	}
+	
+	private fun IrSimpleFunction.isPropertyAccessorDefault(): Boolean =
+		correspondingPropertySymbol != null &&
+			origin == IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR
+	
+	private fun IrSimpleFunction.isGetterDefault(): Boolean =
+		isPropertyAccessorDefault() &&
+			(body?.singleResultExpressionOrNull() as? IrGetField)?.symbol == correspondingPropertySymbol?.owner?.backingField?.symbol
+	
+	private fun IrSimpleFunction.isSetterDefault(): Boolean =
+		isPropertyAccessorDefault() &&
+			((body?.singleResultExpressionOrNull() as? IrSetField)?.let {
+				it.symbol == correspondingPropertySymbol?.owner?.backingField?.symbol &&
+					(it.value as? IrGetValue)?.symbol == valueParameters.singleOrNull()?.symbol
+			} == true).also { if(!it) println(dump()) }
+	
+	
 	override fun visitPropertyNew(declaration: IrProperty) = declare(declaration) {
-		val isOverride = parentAsClass.declarations.any { it is IrProperty && isOverriding(it) }
+		val isOverride = (parent as? IrClass)?.declarations?.any { it is IrProperty && isOverriding(it) } ?: false
 		
 		val backingField = backingField
-		val definedGetter = getter?.takeUnless { it.origin == IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR }
-		val definedSetter = setter?.takeUnless { it.origin == IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR }
+		val definedGetter = getter?.takeUnless { it.isGetterDefault() }
+		val definedSetter = setter?.takeUnless { it.isSetterDefault() }
 		
 		annotations.printAnnotations(declarationNewLine)
 		
@@ -2335,7 +2369,8 @@ private abstract class IrSourcePrinterVisitor(
 	
 	override fun visitSetField(expression: IrSetField) = expr(expression) {
 		receiver?.printAsReceiver()
-		print(symbol.descriptor.name, Type.property)
+		// print(symbol.descriptor.name, Type.property)
+		print("field", Type.boldIdentifier) // maybe todo: check if not direct field
 		symbol.descriptor.printOrigin()
 		print("=", Type.specialOperator)
 		value.print()

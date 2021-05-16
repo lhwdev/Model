@@ -59,6 +59,15 @@ class ModelIrSymbolsClass(context: IrPluginContext) {
 		val writeModel = ModelValue.referenceFunction(ModelIrNames.ModelValueClass.writeModel)
 	}
 	
+	val currentModelManager = library.referenceFirstProperty("currentModelManager")
+	
+	val ModelManager = context.referenceClassOrFail(ModelIrNames.library.child("ModelManager"))
+	val ModelManagerClass = ModelManagerClassType()
+	inner class ModelManagerClassType {
+		val onReadProperty = ModelManager.referenceFunction("onReadProperty", 3)
+		val onWriteProperty = ModelManager.referenceFunction("onWriteProperty", 3)
+	}
+	
 	val ModelInfo = context.referenceClassOrFail(ModelIrNames.ModelInfo)
 	val StructuredModelInfo = context.referenceClassOrFail(ModelIrNames.library.child("StructuredModelInfo"))
 	val StructuredModelDescriptor = context.referenceClassOrFail(ModelIrNames.StructuredModelDescriptor)

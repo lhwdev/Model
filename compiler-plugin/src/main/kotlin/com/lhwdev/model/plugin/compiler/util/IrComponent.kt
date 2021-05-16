@@ -215,6 +215,10 @@ class BuildIrComponentsTransformer(
 }
 
 
+interface IrSymbolDeclaration<out S : IrSymbol> : IrDeclaration {
+	override val symbol: S
+}
+
 // symbol stubs
 abstract class IrComponentSymbol<out D : DeclarationDescriptor, B>(
 	val symbol: IrBindableSymbol<D, B>
@@ -229,12 +233,14 @@ abstract class IrComponentSymbol<out D : DeclarationDescriptor, B>(
 		this.component = component
 	}
 	
+	@OptIn(ObsoleteDescriptorBasedAPI::class)
+	override val hasDescriptor: Boolean get() = false
 	
 	override fun hashCode() = symbol.hashCode()
 	override fun equals(other: Any?) = symbol == (other as? IrComponentSymbol<*, *>)?.symbol
 	
 	
-	abstract class IrBindableComponentSymbol<out D : DeclarationDescriptor, B : IrSymbolDeclaration<IrBindableSymbol<D, B>>>(
+	abstract class IrBindableComponentSymbol<out D : DeclarationDescriptor, B : IrDeclaration>(
 		symbol: IrBindableSymbol<D, B>
 	) : IrComponentSymbol<D, B>(symbol) {
 		@ObsoleteDescriptorBasedAPI
@@ -292,6 +298,9 @@ abstract class IrComponentSymbol<out D : DeclarationDescriptor, B>(
 
 abstract class IrStubSymbol<out D : DeclarationDescriptor, B : IrSymbolOwner> : IrBindableSymbol<D, B> {
 	protected fun no(): Nothing = error("stub symbol")
+	
+	@OptIn(ObsoleteDescriptorBasedAPI::class)
+	override val hasDescriptor: Boolean get() = false
 	
 	@ObsoleteDescriptorBasedAPI
 	override val descriptor: D

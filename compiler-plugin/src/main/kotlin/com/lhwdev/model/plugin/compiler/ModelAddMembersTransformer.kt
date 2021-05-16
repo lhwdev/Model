@@ -19,10 +19,7 @@ import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.types.classifierOrNull
 import org.jetbrains.kotlin.ir.types.defaultType
 import org.jetbrains.kotlin.ir.types.typeWith
-import org.jetbrains.kotlin.ir.util.companionObject
-import org.jetbrains.kotlin.ir.util.copyTypeAndValueArgumentsFrom
-import org.jetbrains.kotlin.ir.util.defaultType
-import org.jetbrains.kotlin.ir.util.hasAnnotation
+import org.jetbrains.kotlin.ir.util.*
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.name.Name
 
@@ -38,6 +35,7 @@ data class ModelInfoIr(
 
 data class ModelPropertyIr(
 	val property: IrProperty,
+	val index: Int,
 	val modelInfo: IrElementScope.(thisRef: IrValueDeclaration) -> IrExpression
 )
 
@@ -50,7 +48,7 @@ fun modelInfoOf(targetModel: IrClass): ModelInfoIr {
 				!it.hasAnnotation(ModelIrNames.ModelInfoParameter)
 		}
 		.mapIndexed { index, property ->
-			ModelPropertyIr(property) { thisRef ->
+			ModelPropertyIr(property, index) { thisRef ->
 				irCall(
 					ModelIrSymbols.modelInfoAt,
 					extensionReceiver = irGet(ModelIrSymbols.ModelValueClass.modelInfo, receiver = irGet(thisRef)),
@@ -163,7 +161,6 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 						valueArguments = listOf(descriptorLambda)
 					)
 				}
-				modelDescriptor.getter = irPropertyGetter()
 			}
 			
 			+irOverrideFunction(ModelIrSymbols.ModelInfoClass.create) {
@@ -180,7 +177,6 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 			visibility = DescriptorVisibilities.PRIVATE
 		) { cache ->
 			cache.backingField = irBackingField { irModelInfoImpl(parameters = emptyList()) } // TODO
-			cache.getter = irPropertyGetter()
 		} else null
 		
 		+irMemberFunction(
@@ -228,7 +224,7 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 						irGet(modelGenerationInfo.modelInfoParameter.symbol, receiver = irGet(irThis))
 					else -> error("???????")
 				}
-				+irReturn(modelInfoValue)
+				irExpressionBody(modelInfoValue)
 			}
 		}
 		
@@ -295,11 +291,37 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 	
 	private fun transformProperty(propertyIr: ModelPropertyIr): Unit = with(propertyIr.property.scope) {
 		val property = propertyIr.property
+		val type = property.propertyType
 		
-		val originalGetter = property.getter
-		if(originalGetter == null) irPropertyGetter()
-		else irPropertyGetter(originalGetter.visibility, originalGetter.isInline) { getter, thisRef ->
+		val originalGetter = property.getter ?: irPropertyGetter()
 		
+		with(originalGetter.memberScope) {
+			val irThis = irThis
+			val originalExpression = irReturnableBlock(type) {
+				val transformer = MapInlineTransformer(
+					callMapping = mapOf(),
+					getMapping = mapOf(),
+					returnMapping = mapOf(originalGetter.symbol to returnTargetSymbol)
+				)
+				originalGetter.body?.statements?.forEach {
+					val statement = it.transform(transformer, null) as IrStatement
+					+statement
+				}
+			}
+			// fun <T> onReadProperty(model: ModelValue, index: Int, value: T): T
+			// currentModelManager.onReadManager
+			val call = irCall(
+				ModelIrSymbols.ModelManagerClass.onReadProperty,
+				dispatchReceiver = irGet(ModelIrSymbols.currentModelManager, receiver = null),
+				
+				// <T>
+				typeArguments = listOf(property.propertyType),
+				
+				// (model = this, index = INDEX, value = property
+				valueArguments = listOf(irGet(irThis), irInt(propertyIr.index), originalExpression)
+			)
+			
+			irExpressionBody(call)
 		}
 	}
 }
