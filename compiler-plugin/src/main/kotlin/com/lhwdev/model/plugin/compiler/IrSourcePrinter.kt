@@ -1571,8 +1571,8 @@ private abstract class IrSourcePrinterVisitor(
 	/// member property
 	
 	private fun IrProperty.isOverriding(target: IrProperty): Boolean = when {
-		name != target.name -> false
 		visibility.isPrivate && target.visibility.isPrivate -> false
+		name != target.name -> false
 		else -> true
 	}
 	
@@ -1593,14 +1593,17 @@ private abstract class IrSourcePrinterVisitor(
 	
 	private fun IrSimpleFunction.isSetterDefault(): Boolean =
 		isPropertyAccessorDefault() &&
-			((body?.singleResultExpressionOrNull() as? IrSetField)?.let {
+			((body?.statements?.singleOrNull() as? IrSetField)?.let {
 				it.symbol == correspondingPropertySymbol?.owner?.backingField?.symbol &&
 					(it.value as? IrGetValue)?.symbol == valueParameters.singleOrNull()?.symbol
 			} == true).also { if(!it) println(dump()) }
 	
 	
 	override fun visitPropertyNew(declaration: IrProperty) = declare(declaration) {
-		val isOverride = (parent as? IrClass)?.declarations?.any { it is IrProperty && isOverriding(it) } ?: false
+		val isOverride = (parent as? IrClass)?.superTypes?.any {
+			val irClass = (it.classifierOrNull as? IrClassSymbol)?.owner
+			irClass != null && irClass.declarations.any { it is IrProperty && isOverriding(it) }
+		} ?: false
 		
 		val backingField = backingField
 		val definedGetter = getter?.takeUnless { it.isGetterDefault() }
@@ -2415,7 +2418,7 @@ private abstract class IrSourcePrinterVisitor(
 			
 			// this@<outer scope name?>
 			val parent = expression.symbol.bound.owner.parent
-			if(parent is IrFunction && parent != currentFunction) {
+			if(parent is IrFunction && parent != currentFunctionOrNull?.irElement) {
 				// in case of lambda argument, its name is the name of the callee function:
 				// a.run { b.apply { this@run } }
 				if(parent.origin == IrDeclarationOrigin.LOCAL_FUNCTION_FOR_LAMBDA) {

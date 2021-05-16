@@ -291,13 +291,17 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 	
 	private fun transformProperty(propertyIr: ModelPropertyIr): Unit = with(propertyIr.property.scope) {
 		val property = propertyIr.property
+		println("transform ${property.debugName()}")
 		val type = property.propertyType
 		
-		val originalGetter = property.getter ?: irPropertyGetter()
+		val originalGetter = property.getter ?: irPropertyGetter().also {
+			property.getter = it
+		}
 		
+		// getter
 		with(originalGetter.memberScope) {
 			val irThis = irThis
-			val originalExpression = irReturnableBlock(type) {
+			val value = irReturnableBlock(type) {
 				val transformer = MapInlineTransformer(
 					callMapping = mapOf(),
 					getMapping = mapOf(),
@@ -318,11 +322,13 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 				typeArguments = listOf(property.propertyType),
 				
 				// (model = this, index = INDEX, value = property
-				valueArguments = listOf(irGet(irThis), irInt(propertyIr.index), originalExpression)
+				valueArguments = listOf(irGet(irThis), irInt(propertyIr.index), value)
 			)
 			
-			irExpressionBody(call)
+			originalGetter.body = irExpressionBody(call)
 		}
+		
+		// setter
 	}
 }
 
