@@ -6,10 +6,7 @@ import org.jetbrains.kotlin.descriptors.ClassKind
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.*
-import org.jetbrains.kotlin.ir.expressions.IrCall
-import org.jetbrains.kotlin.ir.expressions.IrExpression
-import org.jetbrains.kotlin.ir.expressions.IrGetValue
-import org.jetbrains.kotlin.ir.expressions.IrReturn
+import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrReturnImpl
@@ -59,6 +56,30 @@ fun modelInfoOf(targetModel: IrClass): ModelInfoIr {
 	
 	return ModelInfoIr(properties)
 }
+
+
+// not accurate
+private fun IrBody.singleResultExpressionOrNull(): IrExpression? = when(this) {
+	is IrBlockBody -> (statements.lastOrNull() as? IrReturn)?.value
+	is IrExpressionBody -> expression
+	else -> null
+}
+
+private fun IrSimpleFunction.isPropertyAccessorDefault(): Boolean =
+	correspondingPropertySymbol != null &&
+		origin == IrDeclarationOrigin.DEFAULT_PROPERTY_ACCESSOR
+
+private fun IrSimpleFunction.isGetterDefault(): Boolean =
+	isPropertyAccessorDefault() &&
+		(body?.singleResultExpressionOrNull() as? IrGetField)?.symbol == correspondingPropertySymbol?.owner?.backingField?.symbol
+
+private fun IrSimpleFunction.isSetterDefault(): Boolean =
+	isPropertyAccessorDefault() &&
+		((body?.statements?.singleOrNull() as? IrSetField)?.let {
+			it.symbol == correspondingPropertySymbol?.owner?.backingField?.symbol &&
+				(it.value as? IrGetValue)?.symbol == valueParameters.singleOrNull()?.symbol
+		} == true)
+
 
 class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() {
 	override fun lower(irFile: IrFile) {
@@ -110,6 +131,7 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 			class MyModel2<T, R>(val t: T, val r: R, val tInfo: ModelInfo<T>, val rInfo: ModelInfo<R>) {
 				@ModelInfoParameter
 				private val selfModelInfo = CustomModelInfo(tInfo, rInfo)
+			}
 		""".trimIndent()
 		)
 		
@@ -298,10 +320,26 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 			property.getter = it
 		}
 		
+		// looks good on IrSourcePrinter
+		if(isDebug) {
+			val backing = property.backingField
+			if(
+				(backing?.initializer?.expression as? IrGetValue)?.origin == IrStatementOrigin.INITIALIZE_PROPERTY_FROM_PARAMETER &&
+				property.parentClassOrNull?.primaryConstructor?.valueParameters?.any {
+					it.name == property.name
+				} == true
+			) {
+				// remove origin
+				backing.initializer = irExpressionBody(irGet((backing.initializer!!.expression as IrGetValue).symbol))
+			}
+		}
+		
 		// getter
 		with(originalGetter.memberScope) {
 			val irThis = irThis
-			val value = irReturnableBlock(type) {
+			val value = if(originalGetter.isGetterDefault()) { // fast path
+				originalGetter.body?.singleResultExpressionOrNull()!!
+			} else irReturnableBlock(type) {
 				val transformer = MapInlineTransformer(
 					callMapping = mapOf(),
 					getMapping = mapOf(),
@@ -327,6 +365,7 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 			
 			originalGetter.body = irExpressionBody(call)
 		}
+		
 		
 		// setter
 	}
@@ -360,10 +399,14 @@ private class MapInlineTransformer(
 	override fun visitCall(expression: IrCall): IrExpression {
 		val mapTo = callMapping[expression.symbol]
 		if(mapTo != null) return IrCallImpl(
-			startOffset = expression.startOffset, endOffset = expression.endOffset,
-			type = expression.type, symbol = mapTo,
-			typeArgumentsCount = expression.typeArgumentsCount, valueArgumentsCount = expression.valueArgumentsCount,
-			origin = expression.origin, superQualifierSymbol = expression.superQualifierSymbol
+			startOffset = expression.startOffset,
+			endOffset = expression.endOffset,
+			type = expression.type,
+			symbol = mapTo,
+			typeArgumentsCount = expression.typeArgumentsCount,
+			valueArgumentsCount = expression.valueArgumentsCount,
+			origin = expression.origin,
+			superQualifierSymbol = expression.superQualifierSymbol
 		).apply {
 			copyTypeAndValueArgumentsFrom(expression)
 		}

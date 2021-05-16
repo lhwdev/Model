@@ -1596,7 +1596,7 @@ private abstract class IrSourcePrinterVisitor(
 			((body?.statements?.singleOrNull() as? IrSetField)?.let {
 				it.symbol == correspondingPropertySymbol?.owner?.backingField?.symbol &&
 					(it.value as? IrGetValue)?.symbol == valueParameters.singleOrNull()?.symbol
-			} == true).also { if(!it) println(dump()) }
+			} == true)
 	
 	
 	override fun visitPropertyNew(declaration: IrProperty) = declare(declaration) {
@@ -1674,10 +1674,10 @@ private abstract class IrSourcePrinterVisitor(
 			}
 		}
 		
-		if(!isDelegated) {
-			if(definedSetter != null) none(declarationNewLine) // val prop: Type get() = ...\n set() = ... seems a little bit weird?
+		if(!isDelegated && (definedGetter != null || definedSetter != null)) {
+			none(declarationNewLine)
 			
-			if(definedGetter != null || definedSetter != null) indented {
+			indented {
 				if(definedGetter != null) {
 					printSpace()
 					print("get", Type.lightKeyword)
@@ -1686,6 +1686,7 @@ private abstract class IrSourcePrinterVisitor(
 				}
 				
 				if(definedSetter != null) {
+					none("\n")
 					print("set", Type.lightKeyword)
 					parenGroup {
 						if(definedSetter.valueParameters.size == 1)
@@ -1816,37 +1817,41 @@ private abstract class IrSourcePrinterVisitor(
 	
 	/// call
 	
-	fun getOperatorFromName(name: String): String {
+	fun getOperatorFromName(name: String): Pair<String, Boolean> {
 		val isInNotCall = currentInherit.isNotCall
+		
+		// operatorName to space
 		return when(name) {
-			"contains" -> "in"
-			"equals" -> if(isInNotCall) "!=" else "=="
-			"plus" -> "+"
-			"not" -> "!"
-			"minus" -> "-"
-			"times" -> "*"
-			"div" -> "/"
-			"rem" -> "%"
-			"rangeTo" -> ".."
-			"plusAssign" -> "+="
-			"minusAssign" -> "-="
-			"timesAssign" -> "*="
-			"divAssign" -> "/="
-			"remAssign" -> "%="
-			"inc" -> "++"
-			"dec" -> "--"
-			"greater" -> ">"
-			"less" -> "<"
-			"lessOrEqual" -> "<="
-			"greaterOrEqual" -> ">="
-			"EQEQ" -> if(isInNotCall) "!=" else "=="
-			"EQEQEQ" -> if(isInNotCall) "!==" else "==="
-			"ANDAND" -> "&&"
-			"OROR" -> "||"
+			"contains" -> "in" to true
+			"equals" -> (if(isInNotCall) "!=" else "==") to true
+			"unaryPlus" -> "+" to false
+			"unaryMinus" -> "-" to false
+			"not" -> "!" to false
+			"plus" -> "+" to true
+			"minus" -> "-" to true
+			"times" -> "*" to true
+			"div" -> "/" to true
+			"rem" -> "%" to true
+			"rangeTo" -> ".." to false
+			"plusAssign" -> "+=" to true
+			"minusAssign" -> "-=" to true
+			"timesAssign" -> "*=" to true
+			"divAssign" -> "/=" to true
+			"remAssign" -> "%=" to true
+			"inc" -> "++" to false
+			"dec" -> "--" to false
+			"greater" -> ">" to true
+			"less" -> "<" to true
+			"lessOrEqual" -> "<=" to true
+			"greaterOrEqual" -> ">=" to true
+			"EQEQ" -> (if(isInNotCall) "!=" else "==") to true
+			"EQEQEQ" -> (if(isInNotCall) "!==" else "===") to true
+			"ANDAND" -> "&&" to true
+			"OROR" -> "||" to true
 			// no names for
-			"invoke", "get", "set" -> ""
-			"iterator", "hasNext", "next" -> name
-			else -> "[operator $name]"
+			"invoke", "get", "set" -> "" to false
+			"iterator", "hasNext", "next" -> name to false
+			else -> "[operator $name]" to false
 		}
 	}
 	
@@ -1875,10 +1880,12 @@ private abstract class IrSourcePrinterVisitor(
 				}
 			}
 			
-			val operatorName = getOperatorFromName(name)
+			val (operatorName, space) = getOperatorFromName(name)
 			fun printOperator(type: Type = Type.specialOperator) {
+				if(space) printSpace()
 				print(operatorName, type)
 				descriptor.printOrigin()
+				if(space) printSpace()
 			}
 			
 			when(name) {
