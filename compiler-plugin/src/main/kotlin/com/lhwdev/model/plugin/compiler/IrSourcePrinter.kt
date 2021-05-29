@@ -36,9 +36,50 @@ import org.jetbrains.kotlin.renderer.DescriptorRenderer
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.Variance
-import java.util.IdentityHashMap
-import java.util.Locale
-import java.util.Stack
+import java.util.*
+import kotlin.collections.AbstractList
+import kotlin.collections.Iterable
+import kotlin.collections.List
+import kotlin.collections.MutableMap
+import kotlin.collections.all
+import kotlin.collections.any
+import kotlin.collections.asReversed
+import kotlin.collections.contains
+import kotlin.collections.count
+import kotlin.collections.drop
+import kotlin.collections.dropLast
+import kotlin.collections.emptyList
+import kotlin.collections.filter
+import kotlin.collections.filterIndexed
+import kotlin.collections.filterIsInstance
+import kotlin.collections.find
+import kotlin.collections.first
+import kotlin.collections.firstOrNull
+import kotlin.collections.forEach
+import kotlin.collections.forEachIndexed
+import kotlin.collections.getOrNull
+import kotlin.collections.isNotEmpty
+import kotlin.collections.joinToString
+import kotlin.collections.last
+import kotlin.collections.lastIndex
+import kotlin.collections.lastOrNull
+import kotlin.collections.listOf
+import kotlin.collections.listOfNotNull
+import kotlin.collections.map
+import kotlin.collections.mapNotNull
+import kotlin.collections.maxOrNull
+import kotlin.collections.minus
+import kotlin.collections.mutableListOf
+import kotlin.collections.mutableMapOf
+import kotlin.collections.mutableSetOf
+import kotlin.collections.none
+import kotlin.collections.plus
+import kotlin.collections.plusAssign
+import kotlin.collections.set
+import kotlin.collections.single
+import kotlin.collections.singleOrNull
+import kotlin.collections.toMutableList
+import kotlin.collections.withIndex
 
 
 /**
@@ -667,6 +708,22 @@ private abstract class IrSourcePrinterVisitor(
 		
 		iterate { element, hasNext ->
 			block(element)
+			if(hasNext && indexBefore != currentIndex) {
+				print(separator, separatorType)
+				indexBefore = currentIndex
+			}
+		}
+	}
+	
+	inline fun <T> Iterable<T>.printJoinIndexed(
+		separator: CharSequence,
+		separatorType: Type = Type.separator,
+		block: (index: Int, T) -> Unit
+	) {
+		var indexBefore = currentIndex
+		var index = 0
+		iterate { element, hasNext ->
+			block(index++, element)
 			if(hasNext && indexBefore != currentIndex) {
 				print(separator, separatorType)
 				indexBefore = currentIndex
@@ -1679,7 +1736,6 @@ private abstract class IrSourcePrinterVisitor(
 			
 			indented {
 				if(definedGetter != null) {
-					printSpace()
 					print("get", Type.lightKeyword)
 					definedGetter.valueParameters.printValueParameters() // having valueParameters is impossible in frontend, but possible in IR
 					definedGetter.body?.printBody()
@@ -2716,7 +2772,7 @@ private abstract class IrSourcePrinterVisitor(
 			isIf -> {
 				val singleLine = branches.all { !it.result.braceNeeded }
 				
-				branches.forEachIndexed { index, branch ->
+				branches.printJoinIndexed("\n") { index, branch ->
 					val isElse = index == branches.size - 1 &&
 						(branch.condition as? IrConst<*>)?.value == true
 					when {

@@ -7,12 +7,9 @@ import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.*
-import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrReturnImpl
+import org.jetbrains.kotlin.ir.symbols.IrFieldSymbol
 import org.jetbrains.kotlin.ir.symbols.IrReturnTargetSymbol
-import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
-import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.types.classifierOrNull
 import org.jetbrains.kotlin.ir.types.defaultType
 import org.jetbrains.kotlin.ir.types.typeWith
@@ -313,80 +310,103 @@ class ModelAddMembersTransformer : FileLoweringPass, IrElementTransformerVoid() 
 	
 	private fun transformProperty(propertyIr: ModelPropertyIr): Unit = with(propertyIr.property.scope) {
 		val property = propertyIr.property
-		println("transform ${property.debugName()}")
 		val type = property.propertyType
+		val backingField = property.backingField!!
 		
-		val originalGetter = property.getter ?: irPropertyGetter().also {
+		println("transform ${property.debugName()}")
+		
+		val getter = property.getter ?: irPropertyGetter().also {
 			property.getter = it
 		}
 		
 		// looks good on IrSourcePrinter
 		if(isDebug) {
-			val backing = property.backingField
 			if(
-				(backing?.initializer?.expression as? IrGetValue)?.origin == IrStatementOrigin.INITIALIZE_PROPERTY_FROM_PARAMETER &&
+				(backingField.initializer?.expression as? IrGetValue)?.origin == IrStatementOrigin.INITIALIZE_PROPERTY_FROM_PARAMETER &&
 				property.parentClassOrNull?.primaryConstructor?.valueParameters?.any {
 					it.name == property.name
 				} == true
 			) {
-				// remove origin
-				backing.initializer = irExpressionBody(irGet((backing.initializer!!.expression as IrGetValue).symbol))
+				// remove origin INITIALIZE_PROPERTY_FROM_PARAMETER
+				backingField.initializer =
+					irExpressionBody(irGet((backingField.initializer!!.expression as IrGetValue).symbol))
 			}
 		}
 		
 		// getter
-		with(originalGetter.memberScope) {
+		with(getter.memberScope) {
 			val irThis = irThis
-			val value = if(originalGetter.isGetterDefault()) { // fast path
-				originalGetter.body?.singleResultExpressionOrNull()!!
+			val value = if(getter.isGetterDefault()) { // fast path
+				irGet(backingField.symbol, receiver = irGet(irThis))
 			} else irReturnableBlock(type) {
-				val transformer = MapInlineTransformer(
-					callMapping = mapOf(),
-					getMapping = mapOf(),
-					returnMapping = mapOf(originalGetter.symbol to returnTargetSymbol)
+				val transformer = MapGetterTransformer(
+					returnMapping = mapOf(getter.symbol to returnTargetSymbol)
 				)
-				originalGetter.body?.statements?.forEach {
+				getter.body?.statements?.forEach {
 					val statement = it.transform(transformer, null) as IrStatement
 					+statement
 				}
 			}
 			// fun <T> onReadProperty(model: ModelValue, index: Int, value: T): T
+			
 			// currentModelManager.onReadManager
 			val call = irCall(
 				ModelIrSymbols.ModelManagerClass.onReadProperty,
 				dispatchReceiver = irGet(ModelIrSymbols.currentModelManager, receiver = null),
 				
 				// <T>
-				typeArguments = listOf(property.propertyType),
+				typeArguments = listOf(type),
 				
-				// (model = this, index = INDEX, value = property
+				// (model = this, index = INDEX, value = property)
 				valueArguments = listOf(irGet(irThis), irInt(propertyIr.index), value)
 			)
 			
-			originalGetter.body = irExpressionBody(call)
+			getter.body = irExpressionBody(call)
 		}
 		
 		
 		// setter
+		val setter = property.setter
+		if(setter != null) with(setter.memberScope) {
+			val irThis = irThis
+			val newValue = setter.valueParameters.single()
+			
+			// fun <T> onWriteProperty(model: ModelValue, index: Int, value: T): T
+			
+			// field = currentModelManager.onWriteManager
+			fun IrElementScope.setProperty(value: IrExpression): IrExpression = irSet(
+				backingField.symbol,
+				receiver = irGet(irThis),
+				value = irCall(
+					ModelIrSymbols.ModelManagerClass.onWriteProperty,
+					dispatchReceiver = irGet(ModelIrSymbols.currentModelManager, receiver = null),
+					
+					// <T>
+					typeArguments = listOf(type),
+					
+					// (model = this, index = INDEX, value = property)
+					valueArguments = listOf(irGet(irThis), irInt(propertyIr.index), value)
+				)
+			)
+			
+			setter.body = if(setter.isSetterDefault()) irBlockBody {
+				+setProperty(irGet(newValue))
+			} else setter.body?.let { body ->
+				val transformer = MapSetterTransformer(backingField.symbol) { setProperty(it) }
+				irBlockBody {
+					body.statements.forEach { +(it.transform(transformer, null) as IrStatement) }
+				}
+			}
+		}
+		
+		
 	}
 }
 
 
-private class MapInlineTransformer(
-	private val getMapping: Map<IrValueSymbol, IrValueSymbol>,
-	private val callMapping: Map<IrSimpleFunctionSymbol, IrSimpleFunctionSymbol>,
+private class MapGetterTransformer(
 	private val returnMapping: Map<IrReturnTargetSymbol, IrReturnTargetSymbol>
 ) : IrElementTransformerVoid() {
-	override fun visitGetValue(expression: IrGetValue): IrExpression {
-		val mapTo = getMapping[expression.symbol]
-		if(mapTo != null) return IrGetValueImpl(
-			startOffset = expression.startOffset, endOffset = expression.endOffset,
-			type = expression.type, symbol = mapTo,
-			origin = expression.origin
-		)
-		return super.visitGetValue(expression)
-	}
-	
 	override fun visitReturn(expression: IrReturn): IrExpression {
 		val mapTo = returnMapping[expression.returnTargetSymbol]
 		if(mapTo != null) return IrReturnImpl(
@@ -395,21 +415,14 @@ private class MapInlineTransformer(
 		)
 		return super.visitReturn(expression)
 	}
-	
-	override fun visitCall(expression: IrCall): IrExpression {
-		val mapTo = callMapping[expression.symbol]
-		if(mapTo != null) return IrCallImpl(
-			startOffset = expression.startOffset,
-			endOffset = expression.endOffset,
-			type = expression.type,
-			symbol = mapTo,
-			typeArgumentsCount = expression.typeArgumentsCount,
-			valueArgumentsCount = expression.valueArgumentsCount,
-			origin = expression.origin,
-			superQualifierSymbol = expression.superQualifierSymbol
-		).apply {
-			copyTypeAndValueArgumentsFrom(expression)
-		}
-		return super.visitCall(expression)
+}
+
+private class MapSetterTransformer(
+	private val field: IrFieldSymbol,
+	private val mapTo: IrElementScope.(value: IrExpression) -> IrExpression
+) : IrElementTransformerVoid() {
+	override fun visitSetField(expression: IrSetField): IrExpression {
+		if(expression.symbol == field) return expression.scope.mapTo(expression.value)
+		return super.visitSetField(expression)
 	}
 }

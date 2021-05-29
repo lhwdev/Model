@@ -7,3 +7,4 @@ includeBuild("includeBuild")
 
 include(":compiler-plugin")
 include(":core")
+include(":example")

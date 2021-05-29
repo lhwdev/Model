@@ -6,14 +6,16 @@ data class TestModel(val name: String) {
 	var age: Int = 4
 	var other: Float = 1.5f
 		get() {
-			if(field > 5) return field - 6
+			if(field > 5f) return field - 6
 			run {
 				if(field < -10) return field * 3
 			}
 			return field
 		}
 		set(value) {
-			field = value - 4
+			@Suppress("LiftReturnOrAssignment")
+			if(value > 3) field = value - 4
+			else field = 1f
 		}
 	
 	@Exclude
