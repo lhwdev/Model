@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="example-jvm">
+    <output-path>D:\LHW\develop\kotlin\compiler-plugin\Model\example\build\libs</output-path>
+    <root id="archive" name="example-jvm.jar">
+      <element id="module-output" name="Model.example.jvmMain" />
+    </root>
+  </artifact>
+</component>

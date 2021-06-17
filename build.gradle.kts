@@ -1,5 +1,5 @@
 plugins {
-	val kotlinVersion = "1.5.0"
+	val kotlinVersion = "1.5.10"
 	
 	kotlin("multiplatform") version kotlinVersion apply false
 	kotlin("jvm") version kotlinVersion apply false
